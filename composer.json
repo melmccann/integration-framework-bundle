@@ -1,5 +1,5 @@
 {
-    "name": "smartbox/integration-framework-bundle",
+    "name": "melmccann/integration-framework-bundle",
     "description": "Smartbox Framework Bundle",
     "type": "symfony-bundle",
     "license": "MIT",
@@ -23,8 +23,8 @@
         "ocramius/proxy-manager": "~1.0",
         "stomp-php/stomp-php": "4.*",
         "doctrine/doctrine-bundle": "^1.6",
-        "smartbox/besimple-soap": "^1.0.0",
-        "smartbox/core-bundle": "^1.0.0"
+        "melmccann/besimple-soap": "^1.0.0",
+        "melmccann/core-bundle": "^1.0.0"
     },
     "require-dev": {
         "phpunit/php-code-coverage": "~4.0",
@@ -36,6 +36,16 @@
     "config": {
         "bin-dir": "bin"
     },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/melmccann/BeSimpleSoap"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/melmccann/core-bundle"
+        }
+    ],
     "minimum-stability": "dev",
     "prefer-stable" : true
 }
