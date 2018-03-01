@@ -101,8 +101,8 @@ app/console smartesb:consumer:start queue://events --killAfter 10
         $message .= '.</info>';
         $output->writeln($message);
 
-        pcntl_signal(SIGINT, [$this, 'handleSignal']);
-        pcntl_signal(SIGTERM, [$this, 'handleSignal']);
+        //pcntl_signal(SIGINT, [$this, 'handleSignal']);
+        //pcntl_signal(SIGTERM, [$this, 'handleSignal']);
         $this->endpoint->consume($input->getOption(self::OPTION_MAX_MESSAGES));
 
         $output->writeln('<info>Consumer was gracefully stopped for: '.$this->endpoint->getURI().'</info>');
