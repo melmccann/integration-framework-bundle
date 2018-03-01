@@ -23,8 +23,8 @@
         "ocramius/proxy-manager": "~1.0",
         "stomp-php/stomp-php": "4.*",
         "doctrine/doctrine-bundle": "^1.6",
-        "melmccann/besimple-soap": "^1.0.0",
-        "melmccann/core-bundle": "^1.0.0"
+        "melmccann/besimple-soap": "@dev",
+        "melmccann/core-bundle": "@dev"
     },
     "require-dev": {
         "phpunit/php-code-coverage": "~4.0",
