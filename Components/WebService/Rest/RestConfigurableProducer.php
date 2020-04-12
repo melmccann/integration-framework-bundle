@@ -18,6 +18,7 @@ use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\Exceptions\R
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\Exceptions\UnrecoverableRestException;
 use Smartbox\Integration\FrameworkBundle\Core\Protocols\Protocol;
 use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesGuzzleHttpClient;
+use Smartbox\Integration\FrameworkBundle\Exceptions\UnexpectedValueException;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Smartbox\Integration\FrameworkBundle\Events\ExternalSystemHTTPEvent;
@@ -34,6 +35,7 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
     const REQUEST_NAME = 'name';
     const REQUEST_HTTP_VERB = 'http_method';
     const REQUEST_URI = 'uri';
+    const REQUEST_BASE_URI = 'base_uri';
     const VALIDATION = 'validations';
     const VALIDATION_RULE = 'rule';
     const VALIDATION_MESSAGE = 'message';
@@ -120,6 +122,7 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
             RestConfigurableProtocol::OPTION_HEADERS,
             self::VALIDATION,
             self::REQUEST_QUERY_PARAMETERS,
+            self::REQUEST_BASE_URI,
         ]);
 
         $stepParamsResolver->setAllowedValues(self::REQUEST_HTTP_VERB, ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']);
@@ -152,10 +155,15 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
         $httpMethod = $this->confHelper->resolve($params[self::REQUEST_HTTP_VERB], $context);
         $httpMethod = strtoupper($httpMethod);
 
-        $resolvedURI = $endpointOptions[RestConfigurableProtocol::OPTION_BASE_URI];
-        $resolvedURI .= $this->confHelper->resolve($params[self::REQUEST_URI], $context);
-
         $endpointOptions = $this->confHelper->resolve($endpointOptions, $context);
+
+        $overrideBaseUri = !empty($params[self::REQUEST_BASE_URI])
+            ? $this->confHelper->resolve($params[self::REQUEST_BASE_URI], $context)
+            : null;
+
+        $baseURI = $overrideBaseUri ?? $endpointOptions[RestConfigurableProtocol::OPTION_BASE_URI];
+
+        $resolvedURI = $baseURI.$this->confHelper->resolve($params[self::REQUEST_URI], $context);
 
         $requestHeaders = isset($params[RestConfigurableProtocol::OPTION_HEADERS]) ?
             $this->confHelper->resolve($params[RestConfigurableProtocol::OPTION_HEADERS], $context) :
@@ -207,6 +215,10 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
                         $encoding
                     );
                 } catch (RuntimeException $e) {
+                    // Assume that the exception is one of the JSON exceptions that will kill the workers
+                    if ($encoding === RestConfigurableProtocol::ENCODING_JSON && (json_last_error() != JSON_ERROR_SYNTAX)) {
+                        throw new UnexpectedValueException($e->getMessage());
+                    }
                     // if it cannot parse the response fallback to the textual content of the body
                     $responseBody = $responseContent;
                 }
@@ -229,9 +241,9 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
                         true === $validationStep[self::VALIDATION_DISPLAY_MESSAGE]
                     );
                     if ($recoverable) {
-                        $this->throwRecoverableRestProducerException($message, $request->getHeaders(), $requestBody, $response->getHeaders(), $responseBody, $response->getStatusCode(), $showMessage);
+                        $this->throwRecoverableRestProducerException($message, $request->getHeaders(), $requestBody, $response->getHeaders(), $responseContent, $response->getStatusCode(), $showMessage);
                     } else {
-                        $this->throwUnrecoverableRestProducerException($message, $request->getHeaders(), $requestBody, $response->getHeaders(), $responseBody, $response->getStatusCode(), $showMessage);
+                        $this->throwUnrecoverableRestProducerException($message, $request->getHeaders(), $requestBody, $response->getHeaders(), $responseContent, $response->getStatusCode(), $showMessage);
                     }
                 }
             }
@@ -267,6 +279,13 @@ class RestConfigurableProducer extends AbstractWebServiceProducer
             }
         } catch (UnrecoverableRestException $e) {
             throw $e;
+        } catch (UnexpectedValueException $e) {
+            /*
+             * Assume that the UnexpectedValueException thrown has the potential to kill a worker, remove
+             * the responseBody from the payload to keep the logger from terminating when it encounters an
+             * exception during serialization.
+             */
+            $this->throwRecoverableRestProducerException($e->getMessage(), $request->getHeaders(), $requestBody, $response->getHeaders(), null, $response ? $response->getStatusCode() : 0, false, $e->getCode(), $e);
         } catch (\Exception $e) {
             if ($response) {
                 $response->getBody()->rewind();

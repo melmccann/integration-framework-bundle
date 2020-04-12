@@ -8,6 +8,7 @@ use Smartbox\CoreBundle\Type\Traits\HasInternalType;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Exception\ExternalSystemExceptionInterface;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\HasExternalSystemName;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\HasShowExternalSystemErrorMessage;
+use Smartbox\Integration\FrameworkBundle\Components\WebService\Soap\ParseHeadersTrait;
 
 /**
  * Class SoapException.
@@ -17,11 +18,12 @@ class SoapException extends \Exception implements SerializableInterface, Externa
     use HasInternalType;
     use HasExternalSystemName;
     use HasShowExternalSystemErrorMessage;
+    use ParseHeadersTrait;
 
     /**
-     * @var string
+     * @var array
      * @JMS\Expose
-     * @JMS\Type("string")
+     * @JMS\Type("array")
      * @JMS\SerializedName("requestHeaders")
      * @JMS\Groups({"logs"})
      */
@@ -37,9 +39,9 @@ class SoapException extends \Exception implements SerializableInterface, Externa
     protected $request;
 
     /**
-     * @var string
+     * @var array
      * @JMS\Expose
-     * @JMS\Type("string")
+     * @JMS\Type("array")
      * @JMS\SerializedName("responseHeaders")
      * @JMS\Groups({"logs"})
      */
@@ -75,16 +77,31 @@ class SoapException extends \Exception implements SerializableInterface, Externa
         \Exception $previous = null
     ) {
         parent::__construct($message, $code, $previous);
-        $this->requestHeaders = $requestHeaders;
-        $this->request = $request;
-        $this->responseHeaders = $responseHeaders;
-        $this->response = $response;
-        $this->originalMessage = $previous->faultstring;
-        $this->originalCode = $previous->faultcode;
+
+        $this->setRequestHeaders($requestHeaders)
+            ->setResponseHeaders($responseHeaders)
+            ->setResponse($response)
+            ->setRequest($request)
+            ->setOriginalSoapExceptionContent($previous);
     }
 
     /**
-     * @return string
+     * @param \Exception|null $previous
+     *
+     * @return $this
+     */
+    private function setOriginalSoapExceptionContent(\Exception $previous = null)
+    {
+        if (is_object($previous) && $previous instanceof \SoapFault) {
+            $this->setOriginalCode($previous->faultcode);
+            $this->setOriginalMessage($previous->faultstring);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @return array
      */
     public function getRequestHeaders()
     {
@@ -98,7 +115,7 @@ class SoapException extends \Exception implements SerializableInterface, Externa
      */
     public function setRequestHeaders($requestHeaders)
     {
-        $this->requestHeaders = $requestHeaders;
+        $this->requestHeaders = $this->parseHeadersToArray($requestHeaders);
 
         return $this;
     }
@@ -124,7 +141,7 @@ class SoapException extends \Exception implements SerializableInterface, Externa
     }
 
     /**
-     * @return string
+     * @return array
      */
     public function getResponseHeaders()
     {
@@ -138,7 +155,7 @@ class SoapException extends \Exception implements SerializableInterface, Externa
      */
     public function setResponseHeaders($responseHeaders)
     {
-        $this->responseHeaders = $responseHeaders;
+        $this->responseHeaders = $this->parseHeadersToArray($responseHeaders);
 
         return $this;
     }

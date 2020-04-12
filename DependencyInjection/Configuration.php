@@ -378,22 +378,16 @@ class Configuration implements ConfigurationInterface
             ->defaultValue('')
             ->end()
 
-            ->scalarNode('host')
-            ->isRequired()
-            ->end()
+            ->scalarNode('host')->end()
 
             ->scalarNode('vhost')
             ->info('This is the virtual host to use. By default is determined based on the host')
             ->defaultValue(null)
             ->end()
 
-            ->scalarNode('username')
-            ->isRequired()
-            ->end()
+            ->scalarNode('username')->end()
 
-            ->scalarNode('password')
-            ->isRequired()
-            ->end()
+            ->scalarNode('password')->end()
 
             ->scalarNode('format')
             ->isRequired()
@@ -403,9 +397,23 @@ class Configuration implements ConfigurationInterface
             ->defaultValue(null)
             ->end()
 
+            ->scalarNode('port')
+            ->defaultValue(5672)
+            ->end()
+
             ->scalarNode('sync')
             ->info('This parameter define if the stomp driver will be synchronous or not')
             ->defaultValue(true)
+            ->end()
+
+            ->arrayNode('connections')
+                ->info('The list of connection URI to use with then AMQP queue driver.')
+                ->prototype('scalar')->end()
+            ->end()
+
+            ->scalarNode('exception_handler')
+            ->info('The service id of an exception handler to use when a message can not be de-serialized')
+            ->defaultValue(null)
             ->end()
 
             ->end()

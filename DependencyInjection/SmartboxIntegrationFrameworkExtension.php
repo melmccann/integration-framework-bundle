@@ -9,6 +9,7 @@ use Smartbox\Integration\FrameworkBundle\Core\Handlers\MessageHandler;
 use Smartbox\Integration\FrameworkBundle\Core\Consumers\ConfigurableConsumerInterface;
 use Smartbox\Integration\FrameworkBundle\Core\Producers\ConfigurableProducerInterface;
 use Smartbox\Integration\FrameworkBundle\Events\ExternalSystemHTTPEvent;
+use Smartbox\Integration\FrameworkBundle\Events\MalformedInputEvent;
 use Smartbox\Integration\FrameworkBundle\Events\HandlerErrorEvent;
 use Smartbox\Integration\FrameworkBundle\Events\HandlerEvent;
 use Smartbox\Integration\FrameworkBundle\Events\ProcessEvent;
@@ -41,8 +42,14 @@ class SmartboxIntegrationFrameworkExtension extends Extension
     const PRODUCER_PREFIX = 'smartesb.producers.';
     const CONSUMER_PREFIX = 'smartesb.consumers.';
     const PARAM_DEFERRED_EVENTS_URI = 'smartesb.uris.deferred_events';
+    const AMQP_SERVICES = [
+        'smartesb.amqp.queue_manager',
+        'smartesb.consumers.async_queue',
+        'smartesb.drivers.queue.amqp',
+    ];
 
     protected $config;
+    protected $useAmqp = false;
 
     public function getFlowsVersion()
     {
@@ -80,7 +87,7 @@ class SmartboxIntegrationFrameworkExtension extends Extension
                     $arguments = $call[1];
                     $resolvedArguments = [];
                     foreach ($arguments as $index => $arg) {
-                        if (0 === strpos($arg, '@')) {
+                        if (is_string($arg) && 0 === strpos($arg, '@')) {
                             $resolvedArguments[$index] = new Reference(substr($arg, 1));
                         } else {
                             $resolvedArguments[$index] = $arg;
@@ -98,7 +105,7 @@ class SmartboxIntegrationFrameworkExtension extends Extension
             $definition->addMethodCall('setConfHelper', [new Reference('smartesb.configurable_service_helper')]);
             $definition->addMethodCall('setMessageFactory', [new Reference('smartesb.message_factory')]);
             $definition->addMethodCall('setEvaluator', [new Reference('smartesb.util.evaluator')]);
-            $definition->addMethodCall('setSerializer', [new Reference('serializer')]);
+            $definition->addMethodCall('setSerializer', [new Reference('jms_serializer')]);
             $definition->addMethodCall('setEventDispatcher', [new Reference('event_dispatcher')]);
             $definition->addMethodCall('setName', [$producerName]);
             $container->setDefinition($producerId, $definition);
@@ -151,7 +158,7 @@ class SmartboxIntegrationFrameworkExtension extends Extension
             $definition->addMethodCall('setConfHelper', [new Reference('smartesb.configurable_service_helper')]);
             $definition->addMethodCall('setOptions', [$options]);
             $definition->addMethodCall('setEvaluator', [new Reference('smartesb.util.evaluator')]);
-            $definition->addMethodCall('setSerializer', [new Reference('serializer')]);
+            $definition->addMethodCall('setSerializer', [new Reference('jms_serializer')]);
             $definition->addMethodCall('setMessageFactory', [new Reference('smartesb.message_factory')]);
             $definition->addMethodCall('setEventDispatcher', [new Reference('event_dispatcher')]);
             $definition->addMethodCall('setName', [$consumerName]);
@@ -184,6 +191,8 @@ class SmartboxIntegrationFrameworkExtension extends Extension
         foreach ($this->config['queue_drivers'] as $driverName => $driverConfig) {
             $driverId = self::QUEUE_DRIVER_PREFIX.$driverName;
 
+            $exceptionHandlerId =  strtolower($driverConfig['exception_handler']);
+
             $type = strtolower($driverConfig['type']);
             switch ($type) {
                 case 'rabbitmq':
@@ -204,15 +213,62 @@ class SmartboxIntegrationFrameworkExtension extends Extension
                         $driverConfig['sync'],
                     ]);
 
-                    $driverDef->addMethodCall('setSerializer', [new Reference('serializer')]);
+                    $driverDef->addMethodCall('setDescription', [$driverConfig['description']]);
+                    $driverDef->addMethodCall('setSerializer', [new Reference('jms_serializer')]);
                     $driverDef->addMethodCall('setUrlEncodeDestination', [$urlEncodeDestination]);
                     $driverDef->addMethodCall('setMessageFactory', [new Reference('smartesb.message_factory')]);
+                    if ($exceptionHandlerId) {
+                        $driverDef->addMethodCall('setExceptionHandler', [new Reference($exceptionHandlerId)]);
+                    }
                     $queueDriverRegistry->addMethodCall('setDriver', [$driverName, new Reference($driverId)]);
                     $driverDef->addTag('kernel.event_listener', ['event' => KernelEvents::TERMINATE, 'method' => 'onKernelTerminate']);
                     $driverDef->addTag('kernel.event_listener', ['event' => ConsoleEvents::TERMINATE, 'method' => 'onConsoleTerminate']);
 
                     $container->setDefinition($driverId, $driverDef);
 
+                    break;
+
+                case 'amqp':
+                    if (!class_exists('AMQPConnection')) {
+                        throw new \RuntimeException('You need the amqp extension to use AMQP driver.');
+                    }
+
+                    if (empty($driverConfig['connections'] ?? [])) {
+                        throw new \InvalidArgumentException('You need to define at least one connection to use the AMQP driver.');
+                    }
+
+                    $queueManager = $container->findDefinition('smartesb.amqp.queue_manager');
+                    foreach ($driverConfig['connections'] as $index => $uri) {
+                        $connection = parse_url($uri);
+                        $connectionId = "$driverId.connection.$index";
+
+                        $container->register($connectionId, 'AMQPConnection')->setArguments([[
+                            'host' => $connection['host'],
+                            'port' => $connection['port'] ?? 5672,
+                            'vhost' => trim($connection['path'] ?? '', '/'),
+                            'login' => $connection['user'],
+                            'password' => $connection['pass'],
+                        ]]);
+
+                        $queueManager->addMethodCall('addConnection', [new Reference($connectionId)]);
+                    }
+                    $this->useAmqp = true;
+
+                    $driverDef = $container->findDefinition('smartesb.drivers.queue.amqp');
+                    $driverDef->addMethodCall('setId', [$driverId]);
+                    $driverDef->addMethodCall('configure', [null, null, null, $driverConfig['format']]);
+
+                    $queueDriverRegistry->addMethodCall('setDriver', [$driverName, new Reference($driverId)]);
+
+                    $container->setDefinition($driverId, $driverDef);
+                    $container->findDefinition('smartesb.protocols.queue')
+                        ->addMethodCall('setDefaultConsumer', [new Reference('smartesb.consumers.async_queue')]);
+
+                    if ($exceptionHandlerId) {
+                        $container->findDefinition('smartesb.consumers.async_queue')
+                            ->addMethodCall('setExceptionHandler', [new Reference($exceptionHandlerId)]);
+                        $driverDef->addMethodCall('setExceptionHandler', [new Reference($exceptionHandlerId)]);
+                    }
                     break;
 
                 default:
@@ -224,6 +280,12 @@ class SmartboxIntegrationFrameworkExtension extends Extension
         // set default queue driver alias
         $defaultQueueDriverAlias = new Alias(self::QUEUE_DRIVER_PREFIX.$this->config['default_queue_driver']);
         $container->setAlias('smartesb.default_queue_driver', $defaultQueueDriverAlias);
+
+        if (!$this->useAmqp) {
+            foreach (static::AMQP_SERVICES as $id) {
+                $container->removeDefinition($id);
+            }
+        }
     }
 
     protected function loadNoSQLDrivers(ContainerBuilder $container)
@@ -343,7 +405,7 @@ class SmartboxIntegrationFrameworkExtension extends Extension
         ]);
 
         $def->addTag('kernel.event_listener', [
-                'event' => ProcessEvent::TYPE_BEFORE,
+            'event' => ProcessEvent::TYPE_BEFORE,
             'method' => 'onEvent',
         ]);
 
@@ -392,6 +454,11 @@ class SmartboxIntegrationFrameworkExtension extends Extension
             'method' => 'onEvent',
         ]);
 
+        $def->addTag('kernel.event_listener', [
+            'event' => MalformedInputEvent::EVENT_NAME,
+            'method' => 'onEvent',
+        ]);
+
         $container->setDefinition(self::EVENTS_LOGGER_ID, $def);
     }
 
@@ -406,9 +473,12 @@ class SmartboxIntegrationFrameworkExtension extends Extension
 
         if ($this->getFlowsVersion() > $this->getLatestFlowsVersion()) {
             throw new InvalidConfigurationException(
-                sprintf('The flows version number(%s) can not be bigger than the latest version available(%s)',
+                sprintf(
+                    'The flows version number(%s) can not be bigger than the latest version available(%s)',
                     $this->getFlowsVersion(),
-                    $this->getLatestFlowsVersion()));
+                    $this->getLatestFlowsVersion()
+                )
+            );
         }
 
         $container->setParameter('smartesb.flows_version', $this->getFlowsVersion());

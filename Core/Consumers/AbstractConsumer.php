@@ -2,10 +2,12 @@
 
 namespace Smartbox\Integration\FrameworkBundle\Core\Consumers;
 
+use Smartbox\CoreBundle\Utils\Helper\DateTimeCreator;
 use Smartbox\Integration\FrameworkBundle\Core\Endpoints\EndpointInterface;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\MessageInterface;
 use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesLogger;
 use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesSmartesbHelper;
+use Smartbox\Integration\FrameworkBundle\Events\TimingEvent;
 use Smartbox\Integration\FrameworkBundle\Service;
 
 /**
@@ -89,19 +91,18 @@ abstract class AbstractConsumer extends Service implements ConsumerInterface
 
                 // Process
                 if ($message) {
+                    $startConsumeTime = microtime(true);
+
                     --$this->expirationCount;
 
                     $this->process($endpoint, $message);
 
-                    if ($this->logger) {
-                        // Please refer to http://php.net/manual/en/datetime.createfromformat.php#119362 to understand why we number_format
-                        $microTime = number_format(microtime(true), 6, '.', '');
-
-                        $now = \DateTime::createFromFormat('U.u', $microTime);
-                        $this->logger->info('A message was consumed on '.$now->format('Y-m-d H:i:s.u'));
-                    }
+                    $this->logConsumeMessage();
 
                     $this->confirmMessage($endpoint, $message);
+
+                    $endConsumeTime = microtime(true);
+                    $this->dispatchConsumerTimingEvent((int) (($endConsumeTime - $startConsumeTime) * 1000), $message);
                 }
             } catch (\Exception $ex) {
                 if (!$this->stop) {
@@ -121,4 +122,40 @@ abstract class AbstractConsumer extends Service implements ConsumerInterface
 
         return basename($name, 'Consumer');
     }
+
+    /**
+     * This function dispatchs a timing event with the amount of time it took to consume a message.
+     *
+     * @param $intervalMs int the timing interval that we would like to emanate
+     * @param MessageInterface $message
+     *
+     * @return mixed
+     */
+    protected function dispatchConsumerTimingEvent($intervalMs, MessageInterface $message)
+    {
+        $event = new TimingEvent(TimingEvent::CONSUMER_TIMING);
+        $event->setIntervalMs($intervalMs);
+        $event->setMessage($message);
+
+        if (null !== ($dispatcher = $this->getEventDispatcher())) {
+            $dispatcher->dispatch(TimingEvent::CONSUMER_TIMING, $event);
+        }
+    }
+
+    /**
+     * Log the moment a message was consumed.
+     */
+    protected function logConsumeMessage()
+    {
+        if ($this->logger) {
+            $now = DateTimeCreator::getNowDateTime();
+
+            $this->logger->info(
+            'A message was consumed on {date}', [
+            'date' => $now->format('Y-m-d H:i:s.u'),
+            ]
+        );
+    }
+}
+
 }

@@ -5,6 +5,7 @@ namespace Smartbox\Integration\FrameworkBundle\Tests;
 use Smartbox\CoreBundle\Type\SerializableInterface;
 use Smartbox\Integration\FrameworkBundle\Tools\Helper\SmartesbHelper;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\Context;
+use Symfony\Bridge\Doctrine\RegistryInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
 /**
@@ -15,9 +16,10 @@ class BaseKernelTestCase extends KernelTestCase
     /** @var SmartesbHelper */
     protected $helper;
 
-    public function setUp()
+    protected function setUp()
     {
         $this->bootKernel();
+        $this->getContainer()->set('doctrine', $this->createMock(RegistryInterface::class));
         $this->helper = $this->getContainer()->get('smartesb.helper');
     }
 

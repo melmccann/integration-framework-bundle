@@ -10,17 +10,18 @@ use GuzzleHttp\Psr7\Response;
 use JMS\Serializer\SerializerInterface;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\ConfigurableWebserviceProtocol;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\Exceptions\RecoverableRestException;
-use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\Exceptions\RestException;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\Exceptions\UnrecoverableRestException;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\RestConfigurableProducer;
 use Smartbox\Integration\FrameworkBundle\Components\WebService\Rest\RestConfigurableProtocol;
 use Smartbox\Integration\FrameworkBundle\Configurability\ConfigurableServiceHelper;
 use Smartbox\Integration\FrameworkBundle\Tools\Evaluator\ExpressionEvaluator;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Class RestConfigurableProducerTest.
  */
-class RestConfigurableProducerTest extends \PHPUnit_Framework_TestCase
+class RestConfigurableProducerTest extends \PHPUnit\Framework\TestCase
 {
     /** @var ClientInterface|\PHPUnit_Framework_MockObject_MockObject */
     protected $client;
@@ -33,6 +34,12 @@ class RestConfigurableProducerTest extends \PHPUnit_Framework_TestCase
 
     /** @var RestConfigurableProducer */
     protected $producer;
+
+    /** @var ConfigurableServiceHelper */
+    private $helper;
+
+    /** @var EventDispatcher */
+    private $eventDispatcher;
 
     public function setUp()
     {
@@ -49,19 +56,21 @@ class RestConfigurableProducerTest extends \PHPUnit_Framework_TestCase
         $this->serializer->method('serialize')
             ->with($this->anything(), RestConfigurableProtocol::ENCODING_JSON, $this->anything())
             ->willReturnCallback(function ($data) {
-                return json_encode($data);
+                return \json_encode($data);
             })
         ;
 
-        $helper = new ConfigurableServiceHelper();
-        $helper->setEvaluator($this->evaluator);
-        $helper->setSerializer($this->serializer);
+        $this->eventDispatcher = $this->createMock(EventDispatcherInterface::class);
+
+        $this->helper = new ConfigurableServiceHelper();
+        $this->helper->setEvaluator($this->evaluator);
+        $this->helper->setSerializer($this->serializer);
 
         $this->producer = new RestConfigurableProducer();
         $this->producer->setHttpClient($this->client);
         $this->producer->setEvaluator($this->evaluator);
         $this->producer->setSerializer($this->serializer);
-        $this->producer->setConfHelper($helper);
+        $this->producer->setConfHelper($this->helper);
         $this->producer->setName('TestSystem');
     }
 

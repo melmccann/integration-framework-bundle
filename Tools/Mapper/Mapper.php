@@ -80,7 +80,7 @@ class Mapper implements MapperInterface
             throw new \InvalidArgumentException(sprintf('Invalid mapping name "%s"', $mappingName));
         }
 
-        if (empty($obj)) {
+        if (empty($obj) && !$this->shouldAcceptEmptyValues($context, $obj)) {
             return $obj;
         }
 
@@ -94,7 +94,9 @@ class Mapper implements MapperInterface
      * @param $obj
      * @param $context
      *
-     * @return array|null|string
+     * @return array|string|null
+     *
+     * @throws \Exception
      */
     public function resolve(&$mapping, &$obj, &$context)
     {
@@ -130,13 +132,14 @@ class Mapper implements MapperInterface
     }
 
     /**
-     * @param mixed  $elements
+     * @param array  $elements
      * @param string $mappingName
-     * @param mixed  $context
+     * @param array  $context
+     * @param bool   $disassociate
      *
-     * @return array
+     * @return array|mixed
      */
-    public function mapAll($elements, $mappingName, $context = [])
+    public function mapAll($elements, $mappingName, $context = [], $disassociate = false)
     {
         if (!is_array($elements)) {
             throw new \RuntimeException('MapAll expected an array');
@@ -148,6 +151,7 @@ class Mapper implements MapperInterface
 
         $res = [];
         foreach ($elements as $key => $element) {
+            $element = ($disassociate) ? ['key' => $key, 'value' => $element] : $element;
             $res[$key] = $this->map($element, $mappingName, $context);
         }
 
@@ -252,6 +256,33 @@ class Mapper implements MapperInterface
     public function toSoapVarObj($data, $encoding, $type = null)
     {
         return new \SoapVar($data, $encoding, $type);
+    }
+
+    /**
+     * Transform string only to \SoapVar
+     *
+     * @param $item
+     * @param $key
+     */
+    protected function transformToSoapVar(&$item, $key)
+    {
+        if (is_string($item)) {
+            $item = static::toSoapVarObj($item, constant('XSD_STRING'));
+        }
+    }
+
+    /**
+     * Traverse array and convert all string data to \SoapVar so we ensure we escape special characters.
+     *
+     * @param array $data
+     *
+     * @return array
+     */
+    public function arrayToSoapVars(array $data)
+    {
+        array_walk_recursive($data, [$this, 'transformToSoapVar']);
+        
+        return $data;
     }
 
     /**
@@ -380,5 +411,26 @@ class Mapper implements MapperInterface
         } else {
             return $value;
         }
+    }
+
+    /**
+     * Will check if a value match a specific type, and if so will still map it. Ex:
+     * - `allow_empty_string => true` will allow ''
+     * - `allow_empty_numeric => true` will allow 0
+     *
+     * @param array $context
+     * @param mixed $obj
+     *
+     * @return bool
+     */
+    protected function shouldAcceptEmptyValues(array $context, $obj): bool
+    {
+        foreach ($context as $key => $val) {
+            if (preg_match('/^allow_empty_(\w+)$/', $key, $matches) && $val) {
+                return (bool) call_user_func("is_{$matches[1]}", $obj);
+            }
+        }
+
+        return false;
     }
 }

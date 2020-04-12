@@ -1,5 +1,6 @@
 imports:
     - { resource: parameters.yml }
+    - { resource: services.yml }
 
 framework:
     secret: "5yg6u543wrftg34"
@@ -23,7 +24,7 @@ monolog:
 
 smartbox_core:
     cache_drivers:
-        null:
+        'null':
             service: ~
     fixtures_path: "%kernel.root_dir%/JsonFixtures"
     entities_namespaces:
@@ -41,6 +42,12 @@ smartbox_integration_framework:
             format: json
             vhost: '%rabbitmq.vhost%'
             timeout: '%rabbitmq.timeout%'
+        amqp:
+            type: AMQP
+            description: AMQP queue driver
+            format: json
+            connections:
+                - "amqp://%rabbitmq.username%:%rabbitmq.password%@%hostname%/%rabbitmq.vhost%"
 
     nosql_drivers: ~
 

@@ -2,12 +2,14 @@
 
 namespace Smartbox\Integration\FrameworkBundle\Tests\Unit\Tools\Mapper;
 
+use Smartbox\Integration\FrameworkBundle\Tools\Evaluator\ExpressionEvaluator;
 use Smartbox\Integration\FrameworkBundle\Tools\Mapper\Mapper;
 
-class MapperTest extends \PHPUnit_Framework_TestCase
+class MapperTest extends \PHPUnit\Framework\TestCase
 {
     /** @var Mapper */
     private $mapper;
+
 
     protected function setUp()
     {
@@ -99,6 +101,31 @@ class MapperTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals(SOAP_ENC_OBJECT, $soapVar->enc_type);
         $this->assertEquals(['a' => 'b'], $soapVar->enc_value);
         $this->assertEquals('Account', $soapVar->enc_stype);
+    }
+
+    public function testTransformToSoapVar()
+    {
+        $data = [
+            'boolean_test' => true,
+            'string_test' => 'some_string',
+            'array_test'=>[
+                'string_test_2'=> 'some_other_string'
+            ]
+        ];
+        $data = $this->mapper->arrayToSoapVars($data);
+
+        $this->assertNotInstanceOf(\SoapVar::class, $data['boolean_test'], 'Failed to assert that $data[\'boolean_test\'] is not a \SoapVar.');
+        $this->assertNotInstanceOf(\SoapVar::class, $data["array_test"],'Failed to assert that $data["array_test"] is not a \SoapVar.');
+
+        $this->assertFalse(is_string($data['string_test']), 'Failed to assert that our test_string is no longer a string. Should have become a \SoapVar.');
+        $this->assertFalse(is_string($data['array_test']['string_test_2']),'Failed to assert that "test_string => string_test_2" is no longer a string. Should have become a \SoapVar.');
+
+        $this->assertTrue($data['boolean_test']);
+        $this->assertInstanceOf(\SoapVar::class, $data['string_test'], 'Failed to assert that $data[\'string_test\'] was converted to a \SoapVar.');
+        $this->assertInstanceOf(\SoapVar::class, $data['array_test']['string_test_2'],'Failed to assert that $data[\'array_test\'][\'string_test_2\'] was converted to a \SoapVar.');
+
+        $this->assertEquals('some_string', $data['string_test']->enc_value, 'Failed to assert that the content(enc_value) of the \SoapVar for $data[\'string_test\'] is equal to \'some_string\'.');
+        $this->assertEquals('some_other_string', $data['array_test']['string_test_2']->enc_value,'Failed to assert that the content(enc_value) of the \SoapVar for $data[\'array_test\'][\'string_test_2\'] is equal to \'some_string\'.');
     }
 
     public function testConvertListToString()
@@ -205,5 +232,40 @@ class MapperTest extends \PHPUnit_Framework_TestCase
         $input = array(0 => 'A');
         $res = $this->mapper->emptyTo($input, $value);
         $this->assertSame($input, $res);
+    }
+
+    /**
+     * @param mixed $expected
+     * @param mixed $obj
+     * @param array $context
+     *
+     * @dataProvider provideEmptyValues
+     */
+    public function testShouldAcceptEmptyValues($expected, $obj, $context = [])
+    {
+        $this->mapper->addMappings(['foo' => 'My Awesome mapping']);
+        /** @var ExpressionEvaluator|\PHPUnit_Framework_MockObject_MockObject $evaluator */
+        $evaluator = $this->createMock(ExpressionEvaluator::class);
+        $evaluator->expects($this->any())
+            ->method('evaluateWithVars')
+            ->willReturnCallback(function ($mapping, $dictionary) {
+                return ['name' => $dictionary['obj']];
+            });
+        $this->mapper->setEvaluator($evaluator);
+
+        $this->assertSame($expected, $this->mapper->map($obj, 'foo', $context));
+    }
+
+    public function provideEmptyValues()
+    {
+        yield 'No option' => ['', ''];
+
+        $ctx = ['allow_empty_string' => false];
+        yield 'Empty forbidden option' => ['', '', $ctx];
+
+        $ctx['allow_empty_string'] = true;
+
+        yield 'Empty allowed option' => [['name' => ''], '', $ctx];
+        yield 'Wrong type' => [null, null, $ctx];
     }
 }

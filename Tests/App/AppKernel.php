@@ -9,11 +9,8 @@ class AppKernel extends Kernel
     {
         return [
             new \Symfony\Bundle\FrameworkBundle\FrameworkBundle(),
-            new \Symfony\Bundle\SecurityBundle\SecurityBundle(),
-            new \Symfony\Bundle\TwigBundle\TwigBundle(),
             new \Symfony\Bundle\MonologBundle\MonologBundle(),
-            new \Sensio\Bundle\FrameworkExtraBundle\SensioFrameworkExtraBundle(),
-            new \JMS\SerializerBundle\JMSSerializerBundle(),
+            new \JMS\SerializerBundle\JMSSerializerBundle(), // Not really needed by this bundle, it's required by core-bundle.
             new \BeSimple\SoapBundle\BeSimpleSoapBundle(),
 
             new \Smartbox\CoreBundle\SmartboxCoreBundle(),
@@ -24,5 +21,13 @@ class AppKernel extends Kernel
     public function registerContainerConfiguration(LoaderInterface $loader)
     {
         $loader->load(__DIR__.'/config/config.yml');
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getCacheDir()
+    {
+        return sys_get_temp_dir().'/sbx_integration_bundle_tests';
     }
 }

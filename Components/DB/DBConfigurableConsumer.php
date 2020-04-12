@@ -6,25 +6,26 @@ use Smartbox\CoreBundle\Type\SerializableArray;
 use Smartbox\Integration\FrameworkBundle\Components\DB\Dbal\ConfigurableDbalProtocol;
 use Smartbox\Integration\FrameworkBundle\Components\DB\NoSQL\NoSQLConfigurableProtocol;
 use Smartbox\Integration\FrameworkBundle\Configurability\IsConfigurableService;
+use Smartbox\Integration\FrameworkBundle\Core\Consumers\AbstractConsumer;
 use Smartbox\Integration\FrameworkBundle\Core\Consumers\ConfigurableConsumerInterface;
 use Smartbox\Integration\FrameworkBundle\Core\Consumers\Exceptions\NoResultsException;
-use Smartbox\Integration\FrameworkBundle\Core\Consumers\IsStopableConsumer;
 use Smartbox\Integration\FrameworkBundle\Core\Endpoints\EndpointInterface;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\Context;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\MessageInterface;
-use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesLogger;
-use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesSmartesbHelper;
-use Smartbox\Integration\FrameworkBundle\Service;
 
-class DBConfigurableConsumer extends Service implements ConfigurableConsumerInterface
+class DBConfigurableConsumer extends AbstractConsumer implements ConfigurableConsumerInterface
 {
     use IsConfigurableService;
-    use IsStopableConsumer;
-    use UsesLogger;
-    use UsesSmartesbHelper;
 
     /** @var ConfigurableStepsProviderInterface */
     protected $configurableStepsProvider;
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function initialize(EndpointInterface $endpoint)
+    {
+    }
 
     /**
      * @return ConfigurableStepsProviderInterface
@@ -110,8 +111,15 @@ class DBConfigurableConsumer extends Service implements ConfigurableConsumerInte
      */
     public function consume(EndpointInterface $endpoint)
     {
+        $this->stop = false;
+        $sleepTime = (int) $endpoint->getOption(ConfigurableDbalProtocol::OPTION_SLEEP_TIME) * 1000;
+        $inactivityTrigger = (int) $endpoint->getOption(ConfigurableDbalProtocol::OPTION_INACTIVITY_TRIGGER);
+        $alwaysSleep = (bool) $endpoint->getOption(ConfigurableDbalProtocol::OPTION_ALWAYS_SLEEP);
+        $wakeup = microtime(true);
+
         while (!$this->shouldStop()) {
             // Receive
+            $startConsumeTime = microtime(true);
             $message = $this->readMessage($endpoint);
 
             // Process
@@ -120,13 +128,36 @@ class DBConfigurableConsumer extends Service implements ConfigurableConsumerInte
 
                 $endpoint->handle($message);
 
-                if ($this->logger) {
-                    $now = \DateTime::createFromFormat('U.u', microtime(true));
-                    $this->logger->info('A message was consumed on '.$now->format('Y-m-d H:i:s.u'));
-                }
+                $this->logConsumeMessage();
 
-                $this->onConsume($endpoint, $message);
+                $this->confirmMessage($endpoint, $message);
+                $endConsumeTime = $wakeup = microtime(true);
+                $this->dispatchConsumerTimingEvent((int) (($endConsumeTime - $startConsumeTime) * 1000), $message);
+            }
+
+            if ((microtime(true) - $wakeup) > $inactivityTrigger || $alwaysSleep) { // I did nothing since the last x seconds, so little nap...
+                usleep($sleepTime);
             }
         }
+
+        $this->cleanUp($endpoint);
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function cleanUp(EndpointInterface $endpoint)
+    {
+        //TODO: Connect to the steps provider and ask it to shut down its connection
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function confirmMessage(EndpointInterface $endpoint, MessageInterface $message)
+    {
+        $this->onConsume($endpoint, $message);
+
+        return $message;
     }
 }

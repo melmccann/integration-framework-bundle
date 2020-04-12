@@ -8,7 +8,6 @@ use Smartbox\Integration\FrameworkBundle\Core\Exchange;
 use Smartbox\Integration\FrameworkBundle\Core\Processors\Exceptions\ProcessingException;
 use Smartbox\Integration\FrameworkBundle\Events\ProcessEvent;
 use Smartbox\Integration\FrameworkBundle\Service;
-use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesEventDispatcher;
 use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesValidator;
 
 /**
@@ -21,7 +20,6 @@ abstract class Processor extends Service implements ProcessorInterface
     const CONTEXT_PROCESSOR_DESCRIPTION = 'processor_description';
 
     use UsesValidator;
-    use UsesEventDispatcher;
 
     /**
      * @var string

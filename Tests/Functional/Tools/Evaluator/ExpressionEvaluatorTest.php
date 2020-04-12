@@ -7,7 +7,6 @@ use Smartbox\Integration\FrameworkBundle\Core\Exchange;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\Message;
 use Smartbox\Integration\FrameworkBundle\Tools\Evaluator\ExpressionEvaluator;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
-use Symfony\Component\ExpressionLanguage\ExpressionLanguage;
 
 /**
  * Class ExpressionEvaluatorTest.
@@ -67,6 +66,16 @@ class ExpressionEvaluatorTest extends KernelTestCase
                 'expression' => 'substr("abcdef", 10, 3)',
                 'vars' => [],
             ],
+            'Check mb_substr returns a substring' => [
+                'expected' => 'ábé',
+                'expression' => 'mb_substr("ábédef", 0, 3)',
+                'vars' => [],
+            ],
+            'Check mb_substr returns a blank string' => [
+                'expected' => '',
+                'expression' => 'substr("abcdef", 10, 3)',
+                'vars' => [],
+            ],
             'Check md5 returns a hash' => [
                 'expected' => '187ef4436122d1cc2f40dc2b92f0eba0',
                 'expression' => 'md5("ab")',
@@ -75,12 +84,12 @@ class ExpressionEvaluatorTest extends KernelTestCase
             'Check numberFormat returns null if null is passed' => [
                 'expected' => null,
                 'expression' => 'numberFormat(null)',
-                'vars' => []
+                'vars' => [],
             ],
             'Check numberFormat returns a main land number format to 2 decimals and no thousands separator' => [
                 'expected' => '123456,00',
                 'expression' => 'numberFormat( 123456.001, 2, ",", "" )',
-                'vars' => []
+                'vars' => [],
             ],
             'Check count returns the number of elements in an array' => [
                 'expected' => 2,
@@ -88,12 +97,12 @@ class ExpressionEvaluatorTest extends KernelTestCase
                 'vars' => [
                     'array' => [
                         1,
-                        2
-                    ]
-                ]
+                        2,
+                    ],
+                ],
             ],
             'Check slice getting elements from the array starting from position 2 until the end' => [
-                'expected' => ['c','d','e'],
+                'expected' => ['c', 'd', 'e'],
                 'expression' => 'slice(["a", "b", "c", "d", "e"], 2)',
                 'vars' => [],
             ],
@@ -103,12 +112,12 @@ class ExpressionEvaluatorTest extends KernelTestCase
                 'vars' => [],
             ],
             'Check slice getting 3 elements from the array starting from the beginning' => [
-                'expected' => ['a', 'b', "c"],
+                'expected' => ['a', 'b', 'c'],
                 'expression' => 'slice(["a", "b", "c", "d", "e"], 0, 3)',
                 'vars' => [],
             ],
             'Check explode array' => [
-                'expected' => ['this','is','a','test'],
+                'expected' => ['this', 'is', 'a', 'test'],
                 'expression' => 'explode(",","this,is,a,test")',
                 'vars' => [],
             ],
@@ -118,7 +127,7 @@ class ExpressionEvaluatorTest extends KernelTestCase
                 'vars' => [],
             ],
             'Check explode array with single element and trailing delimiter' => [
-                'expected' => ['this',''],
+                'expected' => ['this', ''],
                 'expression' => 'explode(",","this,")',
                 'vars' => [],
             ],
@@ -128,21 +137,69 @@ class ExpressionEvaluatorTest extends KernelTestCase
                 'vars' => [],
             ],
             'Check implode returns a correctly formatted string' => [
-                'expected' => "this_is_a_test",
+                'expected' => 'this_is_a_test',
                 'expression' => 'implode("_",["this","is","a","test"])',
                 'vars' => [],
             ],
             'Check implode returns a correctly formatted string when passed an array with only one element' => [
-                'expected' => "this",
+                'expected' => 'this',
                 'expression' => 'implode("_",["this"])',
                 'vars' => [],
             ],
             'Check removeNewLines removes any new lines in a string' => [
-                'expected' => "Line 1 Line 2",
+                'expected' => 'Line 1 Line 2',
                 'expression' => 'removeNewLines("\nLine 1\nLine 2\n")',
                 'vars' => [],
             ],
+            'Check strtoupper replaces lower case with upper case' => [
+                'expected' => 'SUPER AWESOME',
+                'expression' => 'strtoupper("Super awesome")',
+                'vars' => [],
+            ],
+            'Check strtoupper does nothing on upper case text' => [
+                'expected' => 'SUPER AWESOME',
+                'expression' => 'strtoupper("SUPER AWESOME")',
+                'vars' => [],
+            ],
+            'Checking getKey expression for existing KEY index' => [
+                'expected' => 'VALUE_WITH_KEY',
+                'expression' => 'getKey(array)',
+                'vars' => [
+                    'array' => ['key' => 'VALUE_WITH_KEY'],
+                ],
+            ],
+            'Checking getValue expression for existing VALUE index' => [
+                'expected' => 'VALUE_WITH_VALUE_KEY',
+                'expression' => 'getValue(array)',
+                'vars' => [
+                    'array' => ['value' => 'VALUE_WITH_VALUE_KEY'],
+                ],
+            ],
+        ];
+    }
 
+    /**
+     * @return array
+     */
+    public function dataProviderForFailedExpressionsEvaluatedWithVars()
+    {
+        return [
+            'Checking getKey expression for not existing KEY index' => [
+                'exception' => \RuntimeException::class,
+                'message' => 'The argument passed to "getKey" should have a index called "key"',
+                'expression' => 'getKey(array)',
+                'vars' => [
+                    'array' => ['VALUE_WITH_NO_KEY'],
+                ],
+            ],
+            'Checking getValue expression for existing VALUE index' => [
+                'exception' => \RuntimeException::class,
+                'message' => 'The argument passed to "getValue" should have a index called "value"',
+                'expression' => 'getValue(array)',
+                'vars' => [
+                    'array' => ['VALUE_WITH_NO_VALUE_KEY'],
+                ],
+            ],
         ];
     }
 
@@ -157,6 +214,25 @@ class ExpressionEvaluatorTest extends KernelTestCase
     public function testEvaluateWithVars($expected, $expression, array $vars)
     {
         $this->assertEquals($expected, $this->evaluator->evaluateWithVars($expression, $vars));
+    }
+
+    /**
+     * @covers ::evaluateWithVars
+     * @dataProvider dataProviderForFailedExpressionsEvaluatedWithVars
+     *
+     * @param $exception
+     * @param $message
+     * @param $expression
+     * @param array $vars
+     *
+     * @throws \Exception
+     */
+    public function testFailedEvaluateWithVars($exception, $message, $expression, array $vars)
+    {
+        $this->expectException($exception);
+        $this->expectExceptionMessage($message);
+
+        $this->evaluator->evaluateWithVars($expression, $vars);
     }
 
     /**

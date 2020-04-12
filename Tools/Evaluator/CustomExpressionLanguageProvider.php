@@ -17,6 +17,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
             $this->createContainsFunction(),
             $this->createUniqIdFunction(),
             $this->createSubStrFunction(),
+            $this->createMbSubStrFunction(),
             $this->createDefaultTo(),
             $this->createNumberFormat(),
             $this->createMd5Function(),
@@ -25,6 +26,9 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
             $this->createExplodeFunction(),
             $this->createImplodeFunction(),
             $this->createRemoveNewLinesFunction(),
+            $this->createStrtoupperFunction(),
+            $this->createGetKeyFunction(),
+            $this->createGetValueFunction(),
         ];
     }
 
@@ -43,7 +47,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
                     throw new \RuntimeException('Both arguments passed to "contains" should be strings.');
                 }
 
-                return strpos($string, $search) !== false;
+                return false !== strpos($string, $search);
             }
         );
     }
@@ -59,7 +63,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
                 return sprintf('(%s !== null ? %s : %s)', $value, $value, $defaultValue);
             },
             function ($arguments, $value, $defaultValue) {
-                return $value !== null ? $value : $defaultValue;
+                return null !== $value ? $value : $defaultValue;
             }
         );
     }
@@ -148,25 +152,60 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
         return new ExpressionFunction(
             'substr',
             function ($string, $start, $length) {
-                return sprintf('( is_string(%1$1) && substr(%1$s, %2$s, %3$s) : %1$s ) === false ? "" : substr(%1$s, %2$s, %3$s) : %1$s ) )', $string, $start, $length);
+                return sprintf(
+                    '( !is_string(%1$s) ? "" : mb_substr(%1$s, %2$d, %3$d)) === false ? "" : mb_substr(%1$s, %2$d, %3$d) )', 
+                    $string,
+                    $start,
+                    $length
+                );
             },
             function ($arguments, $string, $start, $length) {
                 if (!is_string($string)) {
                     return '';
                 }
 
-                $sub_string = substr($string, $start, $length);
-                if ($sub_string === false) {
+                $subString = substr($string, $start, $length);
+                if (false === $subString) {
                     return '';
                 }
 
-                return $sub_string;
+                return $subString;
             }
         );
     }
 
     /**
-     * Exposes php number_format
+     * @return ExpressionFunction
+     */
+    protected function createMbSubStrFunction()
+    {
+        return new ExpressionFunction(
+            'mb_substr',
+            function ($string, $start, $length) {
+                return sprintf(
+                    '( !is_string(%1$s) ? "" : mb_substr(%1$s, %2$d, %3$d)) === false ? "" : mb_substr(%1$s, %2$d, %3$d) )',
+                    $string,
+                    $start,
+                    $length
+                );
+            },
+            function ($arguments, $string, $start, $length) {
+                if (!is_string($string)) {
+                    return '';
+                }
+
+                $subString = mb_substr($string, $start, $length);
+                if (false === $subString) {
+                    return '';
+                }
+
+                return $subString;
+            }
+        );
+    }
+
+    /**
+     * Exposes php number_format.
      *
      * string numberFormat ( float $number , int $decimals = 0 , string $dec_point = "." , string $thousands_sep = "," )
      * returns null if null passed
@@ -177,13 +216,14 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     {
         return new ExpressionFunction(
             'numberFormat',
-            function ($number, $decimals = 0, $dec_point = ".", $thousands_sep = ",") {
+            function ($number, $decimals = 0, $dec_point = '.', $thousands_sep = ',') {
                 return sprintf('( %1$s !== null ? number_format(%1$s, %2$s, %3$s, %4$s)) : null', $number, $decimals, $dec_point, $thousands_sep);
             },
-            function ($arguments, $number, $decimals = 0, $dec_point = ".", $thousands_sep = ",") {
-                if ($number === null) {
+            function ($arguments, $number, $decimals = 0, $dec_point = '.', $thousands_sep = ',') {
+                if (null === $number) {
                     return null;
                 }
+
                 return number_format($number, $decimals, $dec_point, $thousands_sep);
             }
         );
@@ -206,7 +246,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     }
 
     /**
-     * Return the number of elements that an array has
+     * Return the number of elements that an array has.
      *
      * @return ExpressionFunction
      */
@@ -224,7 +264,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     }
 
     /**
-     * Returns the sequence of elements from an array based on start and length parameters
+     * Returns the sequence of elements from an array based on start and length parameters.
      *
      * @return ExpressionFunction
      */
@@ -242,7 +282,7 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     }
 
     /**
-     * Explode a string into an array
+     * Explode a string into an array.
      *
      * @return ExpressionFunction
      */
@@ -250,17 +290,17 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     {
         return new ExpressionFunction(
             'explode',
-            function ($delimiter , $string) {
-                return sprintf('explode(%s,%s)', $delimiter , $string);
+            function ($delimiter, $string) {
+                return sprintf('explode(%s,%s)', $delimiter, $string);
             },
-            function ($arguments, $delimiter , $string) {
+            function ($arguments, $delimiter, $string) {
                 return explode($delimiter, $string);
             }
         );
     }
 
     /**
-     * Implode an array to a string
+     * Implode an array to a string.
      *
      * @return ExpressionFunction
      */
@@ -268,17 +308,17 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
     {
         return new ExpressionFunction(
             'implode',
-            function ($glue , $pieces) {
-                return sprintf('implode(%s,%s)', $glue , $pieces);
+            function ($glue, $pieces) {
+                return sprintf('implode(%s,%s)', $glue, $pieces);
             },
-            function ($arguments, $glue , $pieces) {
-                return implode($glue , $pieces);
+            function ($arguments, $glue, $pieces) {
+                return implode($glue, $pieces);
             }
         );
     }
 
     /**
-     * Remove any new lines in $string, like \n, \r\n or \r
+     * Remove any new lines in $string, like \n, \r\n or \r.
      *
      * @return ExpressionFunction
      */
@@ -291,6 +331,77 @@ class CustomExpressionLanguageProvider implements ExpressionFunctionProviderInte
             },
             function ($arguments, $string) {
                 return preg_replace('/[\r\n]+/', ' ', trim($string));
+            }
+        );
+    }
+
+    /**
+     * Returns the uppercased string.
+     *
+     * @return ExpressionFunction
+     */
+    protected function createStrtoupperFunction()
+    {
+        return new ExpressionFunction(
+            'strtoupper',
+            function ($string) {
+                return sprintf('strtoupper(%s)', $string);
+            },
+            function ($arguments, $string) {
+                return strtoupper($string);
+            }
+        );
+    }
+
+    /**
+     * Returns the keys from an array.
+     *
+     * @return ExpressionFunction
+     */
+    protected function createGetKeyFunction()
+    {
+        return new ExpressionFunction(
+            'getKey',
+            function ($array) {
+                return sprintf('getKey(%s)', $array);
+            },
+            function ($arguments, $array) {
+                if (!is_array($array)) {
+                    throw new \RuntimeException('Argument passed to "getKey" should be an array.');
+                }
+
+                if (!isset($array['key'])) {
+                    throw new \RuntimeException('The argument passed to "getKey" should have a index called "key"');
+                }
+
+                return $array['key'];
+            }
+        );
+    }
+
+    /**
+     * Returns the key value from a disassociate array.
+     * $array should be as ['key' => 123, 'value' => 222].
+     *
+     * @return ExpressionFunction
+     */
+    protected function createGetValueFunction()
+    {
+        return new ExpressionFunction(
+            'getValue',
+            function ($array) {
+                return sprintf('getValue(%s)', $array);
+            },
+            function ($arguments, $array) {
+                if (!is_array($array)) {
+                    throw new \RuntimeException('Argument passed to "getValue" should be an array.');
+                }
+
+                if (!isset($array['value'])) {
+                    throw new \RuntimeException('The argument passed to "getValue" should have a index called "value"');
+                }
+
+                return $array['value'];
             }
         );
     }

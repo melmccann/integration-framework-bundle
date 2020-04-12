@@ -1,5 +1,5 @@
 {
-    "name": "melmccann/integration-framework-bundle",
+    "name": "smartbox/integration-framework-bundle",
     "description": "Smartbox Framework Bundle",
     "type": "symfony-bundle",
     "license": "MIT",
@@ -9,28 +9,27 @@
       }
     },
     "require": {
-        "php": ">=5.6.0",
+        "php": ">=7.0",
+        "ext-pcntl": "*",
         "guzzlehttp/guzzle": "^6.0",
-        "symfony/symfony": "^2.7.0",
-        "doctrine/annotations": "^1.2.0",
-        "symfony/assetic-bundle": "~2.3",
-        "symfony/monolog-bundle": "^2.4.0",
-        "sensio/distribution-bundle": "^4.0.0",
-        "sensio/framework-extra-bundle": "^3.0.0",
-        "incenteev/composer-parameter-handler": "~2.0",
-        "jms/serializer-bundle": "^0.13.0",
-        "ocramius/proxy-manager": "~1.0",
-        "stomp-php/stomp-php": "4.*",
-        "doctrine/doctrine-bundle": "^1.6",
         "melmccann/besimple-soap": "@dev",
-        "melmccann/core-bundle": "@dev"
+        "melmccann/core-bundle": "@dev",
+        "symfony/expression-language": "^2.8 || ^3.4",
+        "symfony/framework-bundle": "^2.8.18 || ^3.4",
+        "symfony/options-resolver": "^2.8 || ^3.4",
+        "symfony/validator": "^2.8 || ^3.4",
+        "symfony/yaml": "^2.8 || ^3.4",
+        "symfony/event-dispatcher": "^2.8 || ^3.4"
     },
     "require-dev": {
-        "phpunit/php-code-coverage": "~4.0",
-        "phpunit/phpunit-mock-objects": "~3.2",
-        "phpunit/phpunit": "~5.4",
-        "sensio/generator-bundle": "~2.3",
-        "mongodb/mongodb": "~1.0"
+        "ext-amqp": "*",
+        "doctrine/doctrine-bundle": "^1.6",
+        "jms/serializer-bundle": "^2.4",
+        "mongodb/mongodb": "~1.0",
+        "stomp-php/stomp-php": "4.*",
+        "symfony/monolog-bundle": "^2.4",
+        "symfony/phpunit-bridge": "*",
+        "symfony/stopwatch": "^2.8 || ^3.4"
     },
     "config": {
         "bin-dir": "bin"
@@ -46,5 +45,8 @@
         }
     ],
     "minimum-stability": "dev",
-    "prefer-stable" : true
+    "prefer-stable" : true,
+    "suggest": {
+        "enqueue/amqp-ext": "To use the AMQP driver."
+    }
 }

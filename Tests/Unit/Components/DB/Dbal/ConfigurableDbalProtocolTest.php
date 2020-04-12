@@ -8,10 +8,16 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
 /**
  * Class RestConfigurableProducerTest.
  */
-class ConfigurableDbalProtocolTest extends \PHPUnit_Framework_TestCase
+class ConfigurableDbalProtocolTest extends \PHPUnit\Framework\TestCase
 {
+    /**
+     * @var ConfigurableDbalProtocol
+     */
     private $dbalProtocol;
 
+    /**
+     * @var array
+     */
     private $expectedOptions;
 
     protected function setUp()
@@ -21,6 +27,9 @@ class ConfigurableDbalProtocolTest extends \PHPUnit_Framework_TestCase
             ConfigurableDbalProtocol::OPTION_METHOD,
             ConfigurableDbalProtocol::OPTION_STOP_ON_NO_RESULTS,
             ConfigurableDbalProtocol::OPTION_DB_CONNECTION_NAME,
+            ConfigurableDbalProtocol::OPTION_SLEEP_TIME,
+            ConfigurableDbalProtocol::OPTION_INACTIVITY_TRIGGER,
+            ConfigurableDbalProtocol::OPTION_ALWAYS_SLEEP,
         ];
     }
 

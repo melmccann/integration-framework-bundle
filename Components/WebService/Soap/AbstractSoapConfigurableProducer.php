@@ -12,12 +12,15 @@ use Smartbox\Integration\FrameworkBundle\Components\WebService\Soap\Exceptions\U
 use Smartbox\Integration\FrameworkBundle\Tools\SmokeTests\CanCheckConnectivityInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Smartbox\Integration\FrameworkBundle\Events\ExternalSystemHTTPEvent;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Class AbstractSoapConfigurableProducer.
  */
 abstract class AbstractSoapConfigurableProducer extends AbstractWebServiceProducer implements CanCheckConnectivityInterface
 {
+    use ParseHeadersTrait;
+
     const REQUEST_PARAMETERS = 'parameters';
     const REQUEST_NAME = 'name';
     const SOAP_METHOD_NAME = 'soap_method';
@@ -170,16 +173,24 @@ abstract class AbstractSoapConfigurableProducer extends AbstractWebServiceProduc
         $requestName = $params[self::REQUEST_NAME];
         $soapMethodName = $this->confHelper->resolve($params[self::SOAP_METHOD_NAME], $context);
         $soapMethodParams = $this->confHelper->resolve($params[self::REQUEST_PARAMETERS], $context);
-        $soapOptions = isset($params[self::SOAP_OPTIONS]) ? $params[self::SOAP_OPTIONS] : [];
+        $soapOptions = isset($params[self::SOAP_OPTIONS]) ? $this->confHelper->resolve($params[self::SOAP_OPTIONS], $context) : [];
         $soapHeaders = isset($params[self::SOAP_HEADERS]) ? $params[self::SOAP_HEADERS] : [];
         $httpHeaders = isset($params[self::HTTP_HEADERS]) ? $this->confHelper->resolve($params[self::HTTP_HEADERS], $context) : [];
 
-        $soapOptions['connection_timeout'] = $endpointOptions[ConfigurableWebserviceProtocol::OPTION_CONNECT_TIMEOUT];
-        if ($this->getSoapClient($endpointOptions)) {
-            $httpHeaders[self::HTTP_HEADER_TRANSACTION_ID] = $context['msg']->getContext()['transaction_id'];
-            $httpHeaders[self::HTTP_HEADER_EAI_TIMESTAMP] = $context['msg']->getContext()['timestamp'];
-            $this->getSoapClient($endpointOptions)->setRequestHeaders($httpHeaders);
+        try {
+            $soapOptions['connection_timeout'] = $endpointOptions[ConfigurableWebserviceProtocol::OPTION_CONNECT_TIMEOUT];
+            if ($this->getSoapClient($endpointOptions)) {
+                $httpHeaders[self::HTTP_HEADER_TRANSACTION_ID] = $context['msg']->getContext()['transaction_id'];
+                $httpHeaders[self::HTTP_HEADER_EAI_TIMESTAMP] = $context['msg']->getContext()['timestamp'];
+                $soapClient = $this->getSoapClient($endpointOptions);
+                $soapClient->setRequestHeaders($httpHeaders);
+            }
+        } catch (\ErrorException $exception) {
+            $this->throwRecoverableSoapFaultException($exception->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR, $exception);
+        } catch (\SoapFault $exception) {
+            $this->throwRecoverableSoapFaultException($exception->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR, $exception);
         }
+
         $result = $this->performRequest($soapMethodName, $soapMethodParams, $endpointOptions, $soapOptions, $soapHeaders);
         $this->getEventDispatcher()->dispatch(ExternalSystemHTTPEvent::EVENT_NAME, $this->getExternalSystemHTTPEvent($context, $endpointOptions));
         $context[self::KEY_RESPONSES][$requestName] = $result;
@@ -205,6 +216,33 @@ abstract class AbstractSoapConfigurableProducer extends AbstractWebServiceProduc
         }
 
         return $result;
+    }
+
+    /**
+     * Throw a RecoverableSoapFault when SoapClient construct failed.
+     *
+     * @param \SoapClient $soapClient
+     * @param int         $code
+     * @param null        $previousException
+     *
+     * @throws \Smartbox\Integration\FrameworkBundle\Components\WebService\Soap\Exceptions\RecoverableSoapException
+     */
+    protected function throwRecoverableSoapFaultException($message, $code = 0, $previousException = null)
+    {
+        /* @var \SoapClient $soapClient */
+        $exception = new RecoverableSoapException(
+            $message,
+            null,
+            null,
+            null,
+            null,
+            $code,
+            $previousException
+        );
+        $exception->setShowExternalSystemErrorMessage(true);
+        $exception->setExternalSystemName($this->getName());
+
+        throw $exception;
     }
 
     /**
@@ -296,22 +334,31 @@ abstract class AbstractSoapConfigurableProducer extends AbstractWebServiceProduc
         return '';
     }
 
+    /**
+     * @param $context
+     * @param $endpointOptions
+     *
+     * @return ExternalSystemHTTPEvent
+     */
     public function getExternalSystemHTTPEvent(&$context, &$endpointOptions)
     {
         // Dispatch event with error information
+
+        $client = $this->getSoapClient($endpointOptions);
+
         $event = new ExternalSystemHTTPEvent();
         $event->setEventDetails('HTTP SOAP Request/Response Event');
         $event->setTimestampToCurrent();
         $event->setExchangeId($context['exchange']->getId());
         $event->setTransactionId($context['msg']->getContext()['transaction_id']);
         $event->setFromUri($context['msg']->getContext()['from']);
-        $event->setHttpURI($this->getSoapClient($endpointOptions)->__getLastRequestUri());
-        $event->setRequestHttpHeaders($this->getSoapClient($endpointOptions)->__getLastRequestHeaders());
-        $event->setResponseHttpHeaders($this->getSoapClient($endpointOptions)->__getLastResponseHeaders());
-        $event->setRequestHttpBody($this->getSoapClient($endpointOptions)->__getLastRequest());
-        $event->setResponseHttpBody($this->getSoapClient($endpointOptions)->__getLastResponse());
+        $event->setHttpURI($client->__getLastRequestUri());
+        $event->setRequestHttpHeaders($this->parseHeadersToArray($client->__getLastRequestHeaders()));
+        $event->setResponseHttpHeaders($this->parseHeadersToArray($client->__getLastResponseHeaders()));
+        $event->setRequestHttpBody($client->__getLastRequest());
+        $event->setResponseHttpBody($client->__getLastResponse());
 
-        if (200 === $this->getSoapClient($endpointOptions)->__getLastResponseCode()) {
+        if (200 === $client->__getLastResponseCode()) {
             $event->setStatus('Success');
         } else {
             $event->setStatus('Error');

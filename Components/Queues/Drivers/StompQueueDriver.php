@@ -7,12 +7,14 @@ use Smartbox\CoreBundle\Type\SerializableInterface;
 use Smartbox\Integration\FrameworkBundle\Components\Queues\QueueMessage;
 use Smartbox\Integration\FrameworkBundle\Components\Queues\QueueMessageInterface;
 use Smartbox\Integration\FrameworkBundle\Core\Messages\Context;
+use Smartbox\Integration\FrameworkBundle\Exceptions\Handler\UsesExceptionHandlerTrait;
 use Smartbox\Integration\FrameworkBundle\Service;
 use Smartbox\Integration\FrameworkBundle\DependencyInjection\Traits\UsesSerializer;
 use Stomp\Client;
 use Stomp\StatefulStomp;
 use Stomp\Transport\Frame;
 use Stomp\Transport\Message;
+use Stomp\Exception\ConnectionException;
 use Symfony\Component\Console\Event\ConsoleTerminateEvent;
 use Symfony\Component\HttpKernel\Event\PostResponseEvent;
 
@@ -22,6 +24,7 @@ use Symfony\Component\HttpKernel\Event\PostResponseEvent;
 class StompQueueDriver extends Service implements QueueDriverInterface
 {
     use UsesSerializer;
+    use UsesExceptionHandlerTrait;
 
     const STOMP_VERSION = '1.1';
 
@@ -54,6 +57,16 @@ class StompQueueDriver extends Service implements QueueDriverInterface
     protected $vhost;
 
     protected $subscriptionId = false;
+
+    /**
+     * @var string
+     */
+    protected $description;
+
+    /**
+     * @var int The time it took in ms to deserialize the message
+     */
+    protected $dequeueingTimeMs = 0;
 
     /**
      * @return bool
@@ -151,8 +164,40 @@ class StompQueueDriver extends Service implements QueueDriverInterface
         $this->format = $format;
     }
 
+    /**
+     * @return mixed
+     */
+    public function getTimeout()
+    {
+        return $this->timeout;
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getVhost()
+    {
+        return $this->vhost;
+    }
+
+    /**
+     * @return int
+     */
+    public function getDequeueingTimeMs()
+    {
+        return $this->dequeueingTimeMs;
+    }
+
+    /**
+     * @param $description
+     */
+    public function setDescription($description)
+    {
+        $this->description = $description;
+    }
+
     /** {@inheritdoc} */
-    public function configure($host, $username, $password,  $format = QueueDriverInterface::FORMAT_JSON, $version = self::STOMP_VERSION, $vhost = null, $timeout = 3, $sync = true)
+    public function configure($host, $username, $password, $format = QueueDriverInterface::FORMAT_JSON, $version = self::STOMP_VERSION, $vhost = null, $timeout = 3, $sync = true)
     {
         $this->format = $format;
         $this->host = $host;
@@ -167,8 +212,8 @@ class StompQueueDriver extends Service implements QueueDriverInterface
         $client->setReceiptWait($this->timeout);
         $client->setSync($sync);
         $client->getConnection()->setReadTimeout($this->timeout);
-        $client->setVersions([$version]);
-        $client->setVhostname($vhost);
+        $client->setVersions([$this->stompVersion]);
+        $client->setVhostname($this->vhost);
         $this->statefulStomp = new StatefulStomp($client);
     }
 
@@ -211,7 +256,7 @@ class StompQueueDriver extends Service implements QueueDriverInterface
 
     public function isSubscribed()
     {
-        return $this->subscriptionId !== false;
+        return false !== $this->subscriptionId;
     }
 
     /** {@inheritdoc} */
@@ -250,7 +295,13 @@ class StompQueueDriver extends Service implements QueueDriverInterface
 
         $serializedMsg = $this->getSerializer()->serialize($message, $this->format);
 
-        return $this->statefulStomp->send($destinationUri, new Message($serializedMsg, $message->getHeaders()));
+        try {
+            return $this->statefulStomp->send($destinationUri, new Message($serializedMsg, $message->getHeaders()));
+        } catch (ConnectionException $e) {
+            $this->dropConnection();
+
+            throw $e;
+        }
     }
 
     protected function isFrameFromSubscription(Frame $frame)
@@ -269,6 +320,8 @@ class StompQueueDriver extends Service implements QueueDriverInterface
             );
         }
 
+        $this->dequeueingTimeMs = 0;
+
         $this->currentFrame = $this->statefulStomp->read();
 
         while ($this->currentFrame && !$this->isFrameFromSubscription($this->currentFrame)) {
@@ -278,6 +331,7 @@ class StompQueueDriver extends Service implements QueueDriverInterface
         $msg = null;
 
         if ($this->currentFrame) {
+            $start = microtime(true);
             $deserializationContext = new DeserializationContext();
             if (!empty($version)) {
                 $deserializationContext->setVersion($version);
@@ -286,13 +340,20 @@ class StompQueueDriver extends Service implements QueueDriverInterface
             if (!empty($group)) {
                 $deserializationContext->setGroups([$group]);
             }
-
-            /** @var QueueMessageInterface $msg */
-            $msg = $this->getSerializer()->deserialize($this->currentFrame->getBody(), SerializableInterface::class, $this->format, $deserializationContext);
-
+            try {
+                /** @var QueueMessageInterface $msg */
+                $msg = $this->getSerializer()->deserialize($this->currentFrame->getBody(), SerializableInterface::class, $this->format, $deserializationContext);
+            } catch (\Exception $exception) {
+                $this->getExceptionHandler()($exception, ['headers' => $this->currentFrame->getHeaders(), 'body' => $this->currentFrame->getBody()]);
+                $this->ack();
+                $this->markDequeuedTime($start);
+                return null;
+            }
             foreach ($this->currentFrame->getHeaders() as $header => $value) {
                 $msg->setHeader($header, $this->unescape($value));
             }
+
+            $this->markDequeuedTime($start);
         }
 
         return $msg;
@@ -359,5 +420,21 @@ class StompQueueDriver extends Service implements QueueDriverInterface
     public function onConsoleTerminate(ConsoleTerminateEvent $event)
     {
         $this->disconnect();
+    }
+
+    /**
+     * Kill the TCP connection directly.
+     */
+    protected function dropConnection()
+    {
+        $this->statefulStomp->getClient()->getConnection()->disconnect();
+    }
+
+    /**
+     * @param float $start
+     */
+    private function markDequeuedTime($start)
+    {
+        $this->dequeueingTimeMs = (int) ((microtime(true) - $start) * 1000);
     }
 }
